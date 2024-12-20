@@ -1,31 +1,33 @@
-# OpenFOAM&reg; wth OpenMP&reg; target offloading (using HMM) - AMD MI Instinct&trade; 
-
-To take advantage of the [Heterogeneous Memory Management](https://www.kernel.org/doc/html/v5.0/vm/hmm.html) support on advanced devices, OpenFOAM is ported with OpenMP target offloading. The scripts in this repository can be used to configure and build OpenFOAM with HMM support.
-
+# OpenFOAM with PETSc
 ---
-## Requirements
-The following dependencies must be resolved for a successful build on A+A platforms.
-1. CMake (>3.22)
-2. ROCm&trade; (> 6.0.0)
-3. Clang-17 or latest with HMM and device support. (Comes packaged with ROCm)
-4. MPI (tested with openmpi-v4.1.5) [[Build Instructions](#buid-openmpi)] 
-5. UMPIRE (tested with v6.0.0) [[Build Instructions](#build-umpire)]
-
-> NOTE 
-> * The instructions here describe how to configure and install OpenFOAM on AMD platforms with MI Instinct&trade; cards (A+A).
-> * To build OpenFOAM on NVIDIA platforms with CUDA, read the instuctions in [README-cuda](README-cuda.md) 
-
----
-## Setup environment
-1. Setup the ENV variables that are used by OpenFOAM
-```bash
-export MPI_PATH=<path-to>/ompi
-export UMPIRE_PATH=<path-to>/umpire-6.0.0
-export ROCM_PATH=<path-to>/rocm-version
 ```
+#------------------------------------------------------------------------------
+# =========               |
+# \\      /  F ield       | OpenFOAM: The Open Source CFD Toolbox  
+#  \\    /   O peration   |
+#   \\  /    A nd         |www.openfoam.com
+#    \\/     M anipulation|
+#------------------------------------------------------------------------------
+```
+Configure [OpenFOAM](https://www.openfoam.com) with [PETSc](https://www.mcs.anl.gov/petsc/index.html) to accelerate solvers on the GPUs.
 
-## Build OpenFOAM
-Once the [environment](#setup-environment) is correctly setup, a convenient  `build.sh` script is included here, which can be executed with following options:
+## Requirements
+OpenFOAM and PETSc have the following dependencies. The installation has been tested
+with the mentioned versions of the libraries,
+
+1. gcc-8.3.1
+2. MPI (openmpi, etc.): openmpi/5.0.3
+3. boost/1.75.0
+4. cmake/3.23.0
+5. ROCm/6.3.0 or CUDA/12.6
+6. BLAS (openblas, etc.): blas/3.8.0-8  
+
+## Build OpenFOAM and PETSc
+1. Clone the build scripts - 
+```bash
+$ git clone --progress -b petsc https://github.com/suyashtn/OpenFOAM-build-scripts OpenFOAM
+```
+2. Navigate to `OpenFOAM/` dir from above, and use the `build.sh` script - a one-stop bash script designed to configure and install PETSc, the interface [PETSc4FOAM](https://develop.openfoam.com/modules/external-solver) and OpenFOAM. All the libraries are stitched together so that PETSc solvers can be employed to offload work on GPUs when running OpenFOAM benchmarks and cases. 
 ```bash
 $ ./build.sh -h
 
@@ -37,19 +39,16 @@ usage: ./build.sh
        [--prefix]           Base installation directory, defaults to CWD
        [--openfoam-version] OpenFOAM version (e.g.: 2206, etc.)
        [--cuda]             Build for NVIDIA platforms with CUDA
-       [--load-benchmark]   Load OpenFOAM HPC Benchmarks
-       [--load-benchmark-only]  Skip build and load the benchmakrs only
 ```
 * `--prefix` can be used to specify a particular path/directory. By default, the current working dir (`pwd`) is considered.
-* `--openfoam-version` is used to specify the OpenFOAM version to install. The OpenMP port is based on OpenFOAM-v2206 and has been updated for v2312.
-* `--load-benchmark` configures and builds the benchmark (HPC_motorbike Large) case which will be used for performance measurements.
+* `--openfoam-version` is used to specify the desired OpenFOAM version from [openfoam.com](https://www.openfoam.com/current-release) to install.
 
 To install OpenFOAM, run the script as:
 ```bash
-./build.sh --openfoam-version 2206 --load-benchmark
+./build.sh --openfoam-version 2406
 ```
 
-### Successful installation
+### Successful OpenFOAM installation
 A successful installation with `build.sh` script will print the following: 
 ``` bash
 ========================================
@@ -120,162 +119,51 @@ Base configuration ok.
 Critical systems ok.
 
 Done
-
-## Configuring HPC_motorbike case...
-...
-
 ```
-## Running the HPC_motorbike benchmark
-Before running the benchmark ensure that `MPI_PATH`, `ROCM_PATH` and `UMPIRE_PATH` are correctly setup in your [environment](#setup-environment), else OpenFOAM enviroment and executables will not be loaded. Source the enviroment with: 
-```bash 
-cd <your-path-to>/OpenFOAM-v2206
-source scripts/setup.sh
+>NOTE:
+> * The script downloads `scotch`. The version can be altered by changing the variable `s_v` in L#81.
+> * Similarly, PETSc is downloaded in the ThirdParty-<version> directory. Version is prescribed by the variable `p_v` in line# 95.
+> * Since PETSc needs to be configured with either [HIP](https://docs.amd.com/) or CUDA, a specially configured script `makePETSC.hip` or `makePETSC.cuda` is used. 
+
+### Before running OpenFOAM
+Due to nature of OpenFOAM and PETSc installation, it is important to ensure that the environment variables are properly initialized.
+1. OpenFOAM: `source <your-path>/OpenFOAM-<version>/etc/bashrc`
+2. PETSc:
 ```
-
-To run the bechmark, a convenient script is included:
-```bash
-$ ./bench-hpc-motorbike.sh -h
-
-=================================
-usage: ./bench-hpc-motorbike.sh
-
-       -h | --help      Prints the usage
-       -c | --clean     Clean the case directory
-       -d | --device    Specify target to offload to CUDA or HIP (default: HIP)
-       -g | --ngpus     #GPUs to be used (between 1-4), defaults to 1
-       -j | --threads   #OpenMP threads (default: 1)
-       -n | --mpi-ranks #MPI ranks to be used. (default ranks=gpus)
-       -l | --log-suffix user-defined name/suffix to add to logs (default: apu)
-       -t | --time-steps #time-steps to run for (default: 20) 
-       -r | --run-only  skip mesh build, and directly run the case
+eval $(foamEtcFile -sh -config petsc -- -force)
+foamHasLibrary -verbose petscFoam
 ```
-* `-g` can be used to sepcify the number of devices that must be used. Currently the script is designed to run with max. 4 devices. 
-* `-d` can be used to specify target offloading to device HIP or CUDA (Default: HIP)
-* `-n` specified the number of MPI ranks that must be used. (Default: ranks=gpus)
-* `-t` to change the number of time-steps/iterations to run for. (Default:, 20 time-steps)
-* `-j` prescribes the number of OpenMP threads that can be used. (Default: 1 thread)
-* `-r` can be used to skip mesh generation phase and run the solvers directly. NOTE: This can save time (>30mins) provided the mesh is already generated. Thus, it is recommended that when re-running the benchmark with a different `-g`, `-n`, `-j`, or `-t` after the first successful run, use this option to save computational time.
-* `-l` is optional and can be used to specify the name/suffix for naming the `log*` files dumped during the simulations, and to help in housekeeping.
+  >*NOTE*: The above commands can be added to `.bashrc` or similar shell script, so that environment can be loaded automatically for every new terminal.
 
-
-For **first time** execution, when *no mesh* exists, use the command:
-```bash
-./bench-hpc-motorbike.sh -g N
-```
-where `N` is the number of GPUs (the script is designed to extract `MAX_DEVICES`) availble on the system. Once the mesh is generated, for the subsequent runs, use:
-```bash
-./bench-hpc-motorbike.sh -r -g N
-```
-For example, for first run, with 1 GPU:
-```bash
-./bench-hpc-motorbike.sh -g 1
-```
-and then for a subsequent run, with 4 GPUs:
-```bash
-./bench-hpc-motorbike.sh -r -g 4
-```
-
-### Successful run
-A successful run should look like:
-```bash
-Time = 20
-
-diagonalPBiCGStab:  Solving for Ux, Initial residual = 0.0012770619467, Final residual = 9.68393190595e-05, No Iterations 13
-diagonalPBiCGStab:  Solving for Uy, Initial residual = 0.058762886126, Final residual = 0.00414545948022, No Iterations 11
-diagonalPBiCGStab:  Solving for Uz, Initial residual = 0.0245825566577, Final residual = 0.00185066934045, No Iterations 12
-snGrad: line 52
-in PCG
-diagonalPCG:  Solving for p, Initial residual = 0.0134491004365, Final residual = 0.000133887686834, No Iterations 234
-time step continuity errors : sum local = 0.000408001378213, global = 1.83175309432e-05, cumulative = 0.000657052277727
-test_type: T==Foam::Vector<double>
-diagonalPBiCGStab:  Solving for omega, Initial residual = 0.000194058179271, Final residual = 1.8420802286e-05, No Iterations 2
-bounding omega, min: -2891.51191655 max: 1302799.38762 average: 4493.30914702
-diagonalPBiCGStab:  Solving for k, Initial residual = 0.00208209895293, Final residual = 0.000163406832348, No Iterations 2
-I AM IN kOmegaSSTBase<BasicEddyViscosityModel>::correctNut
-ExecutionTime = 548 s  ClockTime = 1571 s
-
-End
-
-Using:
-  case     : <path-to>/OpenFOAM_HMM/HPC_Benchmark/incompressible/simpleFoam/HPC_motorbike/Large/v1912
-  log      : log.simpleFoam-1-ranks-1-apu
-  database : <path-to>/OpenFOAM_HMM/OpenFOAM-v2206/bin/tools/foamLog.db
-  awk file : logs/foamLog.awk
-  files to : logs
-
-Executing: awk -f logs/foamLog.awk log.simpleFoam-1-ranks-1-apu
-
-Generated XY files for:
-    ...
-    executionTime
-    ...
-End
---------------------
-    FOMs:
---------------------
-    1. Execution Time     (s): 548
-    2. Time per Time-Step (s): 6.44
--------------------
-```
-> NOTE: 
-> * A `helper.sh` is included and is called during the run that helps set the affinity. A basic implementation is provided that uses `Socket 0` and associated GPUs + CPUs for the runs. 
-> * The FOMs shown are for depiction and actual data may change with more porting and optimisations. 
-> * To keep track of progress, at the top of the run, the git commit and config is displayed:
-> ```bash
-> ============================================================
-> Running HPC_motorbike (Large) benchmark
-> 
-> MPI Ranks       : 1
-> OMP_NUM_THREADS : 1
-> APUs/GPUs       : 1
-> Platform        : HIP
-> Git commit      : git-hash -- git-branch
-> =============================================================
-> ```
+---
+## Configuring the HPC Benchmarks
+The standard HPC benchmark problems for OpenFOAM include the following tests:
+1. Lid-driven cavity: An 2D/3D incompressible flow problem. Three workloads available.
+2. Motorbike: A 3D unsteady flow problem which incorporates some basic turbulence modeling. Three workloads available.
  
-## Configuring Dependencies
-
-### Buid OpenMPI
-To build OpenMPI, use the `./build_ompi.sh` script. Ensure that correct versions of `UCX`, `OMPI`, and their intended paths (in `--prefix`) are provided, and then run with:
+`load_benchmark.sh` configures the HPC benchmark cases:
 ```bash
-./build_ompi.sh
-```
-> NOTE:
-> If you want to install MPI library in `/usr`, `/opt` and any other system level directory, then you'll need to run the script with `sudo`, as:
-```bash
-sudo ./build_ompi.sh
-```
-### Build UMPIRE
-To build, [Umpire 6.0.0](https://github.com/LLNL/umpire), use the following steps:
-1. `git clone --progress --recursive https://github.com/LLNL/umpire -b v6.0.0`
-2. navigate to build dir: `mkdir -p build && cd build`:
-3. Configure and build with CMake (and `sudo` if necessary):
-```bash
-cmake \
-  -DCMAKE_INSTALL_PREFIX="<path-to-install>" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_FORTRAN=ON \
-  -DENABLE_EXAMPLES=OFF \
-  -DENABLE_TESTS=OFF \
-  -DENABLE_GMOCK=OFF \
-  -DENABLE_BENCHMARKS=OFF \
-  -DUMPIRE_ENABLE_FILESYSTEM=OFF \
-../umpire
-
-make -j $(nproc)
-sudo make install -j $(nproc)
+$ ./load_benchmark.sh
 ```
 
+#### Disclaimers
+- The sparse-GEMM feature in Kokkos uses sparse APIs in CUDA and ROCm stacks. The `S` workload of `Lid_driven_cavity` benchmark requires ~30GB of GPU memory, and therefore larger problems cannot fit on a single GPU. 
+- Large portions of the GAMG preconditioner in PETSc are resident on the CPU, and is known to have poor scaling on multiple GPUs.
 
-<!-- ---
+---
+## License
+1. OpenFOAM: The source code is licensed under GNU Public License version 3.0 or later. Check license of OpenFOAM [here](https://develop.openfoam.com/Development/openfoam#license).
+2. PETSc: The source code is distributed under 2-Clause BSD License and the license file can be found [here](https://gitlab.com/petsc/petsc/-/blob/main/LICENSE).
+3. PETSc4FOAM: The source code, in line with OpenFOAM and PETSc, is licensed under GNU Public License version 3.0 or later. Check [here](https://develop.openfoam.com/modules/external-solver#license).
+
+---
 ## References
 1. OpenFOAM website: https://www.openfoam.com
 2. OpenFOAM repository: https://develop.openfoam.com/Development/openfoam.git
 3. PETSc website: https://www.mcs.anl.gov/petsc/index.html
-4. PETSc internal repository: https://github.com/AMD-HPC/PETSc
-5. PETSc official repository: https://gitlab.com/petsc/petsc.git
-6. PETSc4FOAM: https://develop.openfoam.com/modules/external-solver
+4. PETSc official repository: https://gitlab.com/petsc/petsc.git
+5. PETSc4FOAM: https://develop.openfoam.com/modules/external-solver
 ---
 
 @author	      : Suyash Tandon<br>
-@last updated	: Dec, 2024<br>
+@last updated	: Dec, 2024

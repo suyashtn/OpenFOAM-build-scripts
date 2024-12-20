@@ -1,5 +1,0 @@
-cDBUG       =
-
-cOPT        = -O3 -DUSE_OMP -target x86_64-pc-linux-gnu -fopenmp --offload-arch=sm_80,sm_90 -fopenmp-version=51 -Wno-conditional-type-mismatch
-
-
